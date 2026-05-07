@@ -22,8 +22,8 @@ class Config:
     llm_max_tokens: int = 4096
     llm_timeout: int = 120
 
-    manifests_dir: str = "manifests"
-    papers_dir: str = "papers"
+    manifests_dir: str = "_paperchecker"
+    papers_dir: str = "_paperchecker/papers"
 
     @property
     def available_backends(self) -> list[str]:

@@ -237,10 +237,15 @@ def search_crossref(
     encoded = quote(query, safe="")
     api_url = (
         "https://api.crossref.org/works?"
-        f"query={encoded}&rows=5&select=DOI,title,author,published-print"
+        f"query={encoded}&rows=5"
     )
     try:
-        req = Request(api_url, headers={"User-Agent": "paperchecker/0.1.0"})
+        req = Request(
+            api_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            },
+        )
         resp = urlopen(req, timeout=30)
         data = json.loads(resp.read().decode())
     except Exception:
@@ -262,12 +267,24 @@ def search_crossref(
         if expected_title and result_title:
             score = _title_similarity(expected_title, result_title)
 
-        # Check year
+        # Check year (only penalise for large mismatches)
         if expected_year:
-            date_parts = item.get("published-print", {}).get("date-parts", [[None]])
-            item_year = str(date_parts[0][0]) if date_parts[0] else ""
+            date_parts = (
+                item.get("published-print", {})
+                .get("date-parts", [[None]])
+            )
+            item_year = str(date_parts[0][0]) if date_parts and date_parts[0] else ""
             if item_year and item_year != expected_year:
-                score *= 0.5
+                try:
+                    gap = abs(int(item_year) - int(expected_year))
+                    if gap <= 2:
+                        score *= 1.0  # minor discrepancy, no penalty
+                    elif gap <= 5:
+                        score *= 0.8
+                    else:
+                        score *= 0.5
+                except ValueError:
+                    score *= 0.5
 
         if score >= 0.4:
             candidates.append((score, doi))

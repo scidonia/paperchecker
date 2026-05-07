@@ -81,8 +81,12 @@ def pull(
 @app.command()
 def check(
     tex_file: str = typer.Argument(..., help="Path to the LaTeX .tex file"),
-    papers_dir: str = typer.Option("papers", help="Directory containing source PDFs"),
-    manifests_dir: str = typer.Option("manifests", help="Manifest directory"),
+    papers_dir: str = typer.Option(
+        "_paperchecker/papers", help="Directory containing source PDFs"
+    ),
+    manifests_dir: str = typer.Option(
+        "_paperchecker", help="Manifest directory"
+    ),
     backend: Optional[str] = typer.Option(
         None, help="LLM backend to use (deepseek, openai, claude)"
     ),
@@ -153,12 +157,21 @@ def check(
             update_citation(
                 entry, cached["status"], cached["confidence"], cached.get("phrase")
             )
-            status_icon = "✓" if cached["status"] == "verified" else "✗"
-            confidence = cached["confidence"]
             if cached["status"] == "verified":
+                status_icon = "✓"
+                confidence = cached["confidence"]
                 verified += 1
+            elif cached["status"] == "unchecked":
+                status_icon = "?"
+                confidence = 0
+                unchecked += 1
             else:
+                status_icon = "✗"
+                confidence = cached["confidence"]
                 unsubstantiated += 1
+            console.print(
+                f"  [dim]{cit.citation_key[:50]}... (cached)[/dim]"
+            )
         else:
             # Try to find and verify the paper
             source_path = resolve_source(
@@ -289,15 +302,26 @@ def check(
                             status_icon = "?"
                             confidence = 0
                             unchecked += 1
+                            cache[cit.cache_key] = {
+                                "status": "unchecked",
+                                "confidence": 0,
+                                "phrase": "",
+                                "reason": "LLM verification failed",
+                            }
                 else:
                     status_icon = "?"
                     confidence = 0
                     unchecked += 1
+                    cache[cit.cache_key] = {
+                        "status": "unchecked",
+                        "confidence": 0,
+                        "phrase": "",
+                        "reason": "Text extraction failed",
+                    }
             else:
                 status_icon = "?"
                 confidence = 0
                 unchecked += 1
-                # Cache "not found" to avoid re-searching on re-run
                 cache[cit.cache_key] = {
                     "status": "unchecked",
                     "confidence": 0,
@@ -449,6 +473,89 @@ def register(
     console.print(
         f"\n[bold]{registered} registered, {skipped} already known[/bold]"
     )
+
+
+@app.command()
+def scan(
+    papers_dir: str = typer.Option(
+        "_paperchecker/papers", help="Directory of PDFs to scan"
+    ),
+    manifests_dir: str = typer.Option(
+        "_paperchecker", help="Directory for scan manifest"
+    ),
+):
+    """Scan PDFs with LLM to extract metadata, match against citations.
+
+    Reads the first few pages of each unregistered PDF, asks the LLM for
+    title/author/year, and stores the metadata for citation matching.
+    Useful for papers downloaded via sci-hub or other sources that don't
+    have immediate bibtex associations.
+    """
+    from paperchecker.extractor import extract_text
+    from paperchecker.llm import call_llm
+
+    if not os.path.isdir(papers_dir):
+        console.print(f"[red]Papers directory not found: {papers_dir}[/red]")
+        raise typer.Exit(1)
+
+    pdfs = sorted(
+        [f for f in os.listdir(papers_dir) if f.endswith(".pdf")]
+    )
+
+    scans_path = os.path.join(manifests_dir, "_scans.json")
+    scans = {}
+    if os.path.exists(scans_path):
+        with open(scans_path) as f:
+            scans = json.load(f)
+
+    new = 0
+    for filename in pdfs:
+        if filename in scans:
+            continue
+
+        filepath = os.path.join(papers_dir, filename)
+        text = extract_text(filepath, max_chars=4000)
+        if not text:
+            continue
+
+        prompt = f"""Extract the bibliographic metadata from this academic paper text.
+Return ONLY a JSON object with these fields:
+{{"title": "...", "author": "Lastname", "year": "YYYY"}}
+If you cannot determine a field, use "unknown".
+
+Paper text:
+{text[:3000]}
+
+JSON:"""
+
+        resp = call_llm(config, prompt)
+        if not resp:
+            continue
+
+        # Parse JSON from response
+        try:
+            # Extract JSON object
+            import re
+            m = re.search(r'\{[^}]+\}', resp)
+            if m:
+                meta = json.loads(m.group(0))
+                scans[filename] = {
+                    "title": meta.get("title", "unknown"),
+                    "author": meta.get("author", "unknown"),
+                    "year": str(meta.get("year", "unknown")),
+                }
+                new += 1
+                console.print(
+                    f"  [green]{filename}[/green] → "
+                    f"{meta.get('author', '?')}, "
+                    f"{meta.get('year', '?')}"
+                )
+                with open(scans_path, "w") as f:
+                    json.dump(scans, f, indent=2)
+        except Exception:
+            pass
+
+    console.print(f"\n[bold]{new} new scans, {len(scans)} total[/bold]")
 
 
 def _looks_like_arxiv(s: str) -> bool:

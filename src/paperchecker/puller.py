@@ -54,8 +54,13 @@ def _find_sentence_start(text: str, pos: int) -> int:
 
 def _clean_latex(s: str) -> str:
     """Strip LaTeX commands and whitespace from a string."""
+    # Handle escaped characters like \o, \O, \ae, etc.
+    s = s.replace("{\\o}", "ø").replace("{\\O}", "Ø")
+    s = s.replace("\\o ", "ø").replace("\\O ", "Ø")
+    # Remove remaining LaTeX commands
     s = re.sub(r"\\[a-z]+\{([^}]*)\}", r"\1", s)
     s = re.sub(r"\\[a-z]+", "", s)
+    s = re.sub(r"\{([^}]*)\}", r"\1", s)
     s = re.sub(r"\s+", " ", s)
     return s.strip()
 
@@ -222,7 +227,9 @@ def get_citation_info(
     if authors:
         first = authors.split(" and ")[0].strip()
         parts = first.split(",")
-        info["author"] = parts[0].strip() if len(parts) > 1 else first.split()[-1].strip()
+        raw_author = parts[0].strip() if len(parts) > 1 else first.split()[-1].strip()
+        # Strip LaTeX commands from author name (e.g., S{\o}rensen -> Sørensen)
+        info["author"] = _clean_latex(raw_author)
 
     titles = _find_field_value(entry_text, "title")
     if titles:
