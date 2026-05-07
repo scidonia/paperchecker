@@ -164,16 +164,17 @@ def search_semantic_scholar(
                     return browser_result
                 return None
 
-        # Direct HTTP with retry + backoff
-        for attempt in range(3):
-            time.sleep(1.0 * (attempt + 1))
+        # Direct HTTP with exponential backoff (respects SS rate limits)
+        for attempt in range(5):
+            delay = 2 ** attempt  # 1, 2, 4, 8, 16 seconds
+            time.sleep(delay)
             req = Request(api_url, headers=headers)
             try:
                 resp = urlopen(req, timeout=30)
                 data = json.loads(resp.read().decode())
                 break
             except Exception:
-                if attempt == 2:
+                if attempt == 4:
                     return None
                 continue
     except Exception:
