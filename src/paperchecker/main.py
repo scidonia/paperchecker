@@ -35,6 +35,7 @@ from paperchecker.downloader import (
     search_arxiv,
     search_semantic_scholar,
     search_crossref,
+    _download_via_libgen,
 )
 from paperchecker.registry import (
     check_citation_hash,
@@ -227,6 +228,17 @@ def check(
                             source_path = download_from_doi(
                                 guessed_doi, papers_dir
                             )
+                    # Last resort: try libgen for books and hard-to-find papers
+                    if (
+                        not source_path
+                        and info.get("title")
+                        and info.get("author")
+                    ):
+                        source_path = _download_via_libgen(
+                            info["title"],
+                            info["author"],
+                            papers_dir,
+                        )
                     if source_path:
                         console.print(
                             f"  [green]Downloaded: {os.path.basename(source_path)}[/green]"
