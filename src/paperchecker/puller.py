@@ -218,17 +218,15 @@ def get_citation_info(
 
     info: dict[str, str] = {}
 
-    authors = re.findall(r"author\s*=\s*\{(.*?)\}", entry_text, re.DOTALL)
+    authors = _find_field_value(entry_text, "author")
     if authors:
-        # Take first author's last name
-        first = authors[0].split(" and ")[0].strip()
+        first = authors.split(" and ")[0].strip()
         parts = first.split(",")
         info["author"] = parts[0].strip() if len(parts) > 1 else first.split()[-1].strip()
 
-    titles = re.findall(r"title\s*=\s*\{(.*?)\}", entry_text, re.DOTALL)
+    titles = _find_field_value(entry_text, "title")
     if titles:
-        # Strip nested braces {{...}} -> ...
-        title = re.sub(r"\{+([^{}]+)\}+", r"\1", titles[0])
+        title = re.sub(r"\{+([^{}]+)\}+", r"\1", titles)
         title = re.sub(r"\s+", " ", title).strip()
         info["title"] = title[:200]
 
@@ -237,6 +235,18 @@ def get_citation_info(
         info["year"] = years[0]
 
     return info
+
+
+def _find_field_value(entry_text: str, field_name: str) -> str | None:
+    """Extract a bibtex field value handling nested braces."""
+    import re
+
+    m = re.search(rf"{re.escape(field_name)}\s*=\s*\{{", entry_text)
+    if not m:
+        return None
+    brace_pos = m.end() - 1
+    content = _find_brace_content(entry_text, brace_pos + 1)
+    return content.strip() if content else None
 
 
 def build_search_query(citation_key: str, tex_path: str) -> str | None:
