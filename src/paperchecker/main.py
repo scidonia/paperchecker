@@ -34,6 +34,7 @@ from paperchecker.downloader import (
     download_from_scholar,
     search_arxiv,
     search_semantic_scholar,
+    search_crossref,
 )
 from paperchecker.registry import (
     check_citation_hash,
@@ -187,6 +188,13 @@ def check(
                             expected_title=expected,
                             expected_year=year,
                         )
+                    if not source_path:
+                        source_path = search_crossref(
+                            query,
+                            papers_dir,
+                            expected_title=expected,
+                            expected_year=year,
+                        )
                     # Final fallback: ask LLM for the DOI, try sci-hub
                     if (
                         not source_path
@@ -289,6 +297,13 @@ def check(
                 status_icon = "?"
                 confidence = 0
                 unchecked += 1
+                # Cache "not found" to avoid re-searching on re-run
+                cache[cit.cache_key] = {
+                    "status": "unchecked",
+                    "confidence": 0,
+                    "phrase": "",
+                    "reason": "No source found",
+                }
 
         results_table.add_row(
             str(i + 1),

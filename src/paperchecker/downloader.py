@@ -217,6 +217,72 @@ def search_semantic_scholar(
     return None
 
 
+def search_crossref(
+    query: str,
+    output_dir: str = "papers",
+    expected_title: str | None = None,
+    expected_year: str | None = None,
+) -> str | None:
+    """Search CrossRef API for a paper by title/author, get DOI, download via sci-hub.
+
+    CrossRef indexes major publishers including ScienceDirect/Elsevier,
+    Springer, ACM, and IEEE. Free API with good rate limits.
+
+    Returns path to downloaded PDF or None.
+    """
+    import json
+    from urllib.parse import quote
+    from urllib.request import urlopen, Request
+
+    encoded = quote(query, safe="")
+    api_url = (
+        "https://api.crossref.org/works?"
+        f"query={encoded}&rows=5&select=DOI,title,author,published-print"
+    )
+    try:
+        req = Request(api_url, headers={"User-Agent": "paperchecker/0.1.0"})
+        resp = urlopen(req, timeout=30)
+        data = json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+    items = data.get("message", {}).get("items", [])
+    candidates: list[tuple[float, str]] = []  # (score, doi)
+
+    for item in items:
+        doi = item.get("DOI")
+        if not doi:
+            continue
+
+        # Extract title for scoring
+        titles = item.get("title", [])
+        result_title = titles[0] if titles else ""
+
+        score = 1.0
+        if expected_title and result_title:
+            score = _title_similarity(expected_title, result_title)
+
+        # Check year
+        if expected_year:
+            date_parts = item.get("published-print", {}).get("date-parts", [[None]])
+            item_year = str(date_parts[0][0]) if date_parts[0] else ""
+            if item_year and item_year != expected_year:
+                score *= 0.5
+
+        if score >= 0.4:
+            candidates.append((score, doi))
+
+    candidates.sort(key=lambda c: c[0], reverse=True)
+
+    # Try downloading each candidate DOI via sci-hub
+    for _, doi in candidates:
+        path = _download_via_scihub(doi, output_dir)
+        if path:
+            return path
+
+    return None
+
+
 def _safe_filename(s: str) -> str:
     """Convert a string (e.g., DOI) into a safe filename."""
     import re
