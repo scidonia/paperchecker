@@ -21,7 +21,7 @@ from paperchecker.puller import (
 )
 from paperchecker.extractor import extract_text
 from paperchecker.phraser import split_phrases, format_numbered_phrases
-from paperchecker.checker import verify_claim
+from paperchecker.checker import verify_claim, guess_doi
 from paperchecker.manifest import (
     create_manifest,
     add_citation,
@@ -187,6 +187,25 @@ def check(
                             expected_title=expected,
                             expected_year=year,
                         )
+                    # Final fallback: ask LLM for the DOI, try sci-hub
+                    if (
+                        not source_path
+                        and info.get("author")
+                        and info.get("title")
+                    ):
+                        guessed_doi = guess_doi(
+                            config,
+                            info["title"],
+                            info.get("author", ""),
+                            info.get("year", ""),
+                        )
+                        if guessed_doi:
+                            console.print(
+                                f"  [dim]LLM guessed DOI: {guessed_doi}[/dim]"
+                            )
+                            source_path = download_from_doi(
+                                guessed_doi, papers_dir
+                            )
                     if source_path:
                         console.print(
                             f"  [green]Downloaded: {os.path.basename(source_path)}[/green]"

@@ -11,6 +11,42 @@ from paperchecker.config import Config
 from paperchecker.llm import call_llm
 from paperchecker.phraser import split_phrases, format_numbered_phrases
 
+
+def guess_doi(
+    config: Config,
+    title: str,
+    author: str,
+    year: str,
+) -> str | None:
+    """Ask the LLM to guess the DOI for a paper given its metadata.
+
+    Returns the DOI string (e.g., '10.1234/example') or None.
+    """
+    prompt = f"""Find the DOI (Digital Object Identifier) for this academic paper.
+Reply with ONLY the DOI string on one line (e.g., 10.1234/example.2025) or "UNKNOWN":
+
+Title: {title}
+Author: {author}
+Year: {year}
+
+DOI:"""
+
+    resp = call_llm(config, prompt)
+    if not resp:
+        return None
+
+    resp = resp.strip()
+    if resp.upper() == "UNKNOWN" or not resp:
+        return None
+
+    # Extract DOI-like pattern from response
+    import re
+
+    m = re.search(r"(10\.\d{4,}/[^\s]+)", resp)
+    if m:
+        return m.group(1).rstrip(".")
+    return None
+
 VERIFICATION_PROMPT = """Does this source document substantiate the following claim made in a paper?
 
 CLAIM: {claim}

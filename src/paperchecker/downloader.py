@@ -148,10 +148,19 @@ def search_semantic_scholar(
     )
     try:
         import time
-        time.sleep(1.0)  # respect rate limit
-        req = Request(api_url, headers={"User-Agent": "paperchecker/0.1.0"})
-        resp = urlopen(req, timeout=30)
-        data = json.loads(resp.read().decode())
+
+        # Retry with exponential backoff for rate limits
+        for attempt in range(3):
+            time.sleep(1.0 * (attempt + 1))
+            req = Request(api_url, headers={"User-Agent": "paperchecker/0.1.0"})
+            try:
+                resp = urlopen(req, timeout=30)
+                data = json.loads(resp.read().decode())
+                break
+            except Exception:
+                if attempt == 2:
+                    return None
+                continue
     except Exception:
         return None
 
@@ -260,7 +269,7 @@ def _download_via_scihub(
                     "Referer": f"https://{domain}/",
                 },
             )
-            resp = urlopen(req, timeout=60)
+            resp = urlopen(req, timeout=15)
             html = resp.read().decode("utf-8", errors="replace")
         except Exception:
             continue
@@ -354,23 +363,20 @@ def download_from_doi(
 ) -> str | None:
     """Download a paper PDF by resolving a DOI.
 
-    Uses doi.org to redirect to the publisher's PDF URL,
-    then follows redirects to download.
-
-    Args:
-        doi: The DOI string (e.g., '10.1234/example').
-        output_dir: Directory to save the PDF.
-        headless: Whether to run browser headless.
-
-    Returns:
-        Path to the downloaded file, or None on failure.
+    Tries sci-hub first, then doi.org redirect, then Unpaywall.
     """
+    # Try sci-hub first
+    path = _download_via_scihub(doi, output_dir)
+    if path:
+        return path
+
+    # Fall back to doi.org resolution + playwright
     doi_clean = doi.strip()
     if doi_clean.startswith("http"):
         doi_clean = doi_clean.split("doi.org/")[-1]
 
     url = f"https://doi.org/{doi_clean}"
-    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", doi_clean)
+    safe_name = _safe_filename(doi_clean)
     filename = f"{safe_name}.pdf"
     return _download_pdf(url, output_dir, filename, "doi", headless)
 
