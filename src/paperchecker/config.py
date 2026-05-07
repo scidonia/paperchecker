@@ -18,7 +18,9 @@ class Config:
         default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", "")
     )
 
-    llm_temperature: float = 0.0
+    semantic_scholar_api_key: str = field(
+        default_factory=lambda: os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+    )
     llm_max_tokens: int = 4096
     llm_timeout: int = 120
 

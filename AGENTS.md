@@ -95,6 +95,9 @@ Configured via environment variables. The checker uses the first available backe
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
 | Claude | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
 
+Semantic Scholar API key (optional, avoids rate limits):
+| `SEMANTIC_SCHOLAR_API_KEY` | Free from https://api.semanticscholar.org/ |
+
 ### Confidence Scale (1-5)
 
 | Score | Meaning |
@@ -130,6 +133,7 @@ Manifests are Markdown files stored in a `manifests/` directory. Each manifest t
 | `DEEPSEEK_API_KEY` | No | DeepSeek API key |
 | `OPENAI_API_KEY` | No | OpenAI API key |
 | `ANTHROPIC_API_KEY` | No | Anthropic API key |
+| `SEMANTIC_SCHOLAR_API_KEY` | No | Semantic Scholar API key (free, avoids rate limits) |
 
 At least one LLM API key must be set for verification to work.
 

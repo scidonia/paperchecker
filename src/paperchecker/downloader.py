@@ -147,12 +147,27 @@ def search_semantic_scholar(
         f"query={encoded}&year={expected_year or ''}&limit=5&fields={fields}"
     )
     try:
-        import time
+        import time, os
 
-        # Retry with exponential backoff for rate limits
+        ss_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+        headers = {"User-Agent": "Mozilla/5.0"}
+        if ss_key:
+            headers["x-api-key"] = ss_key
+
+        # Try with Playwright browser first (avoids rate limits without key)
+        if not ss_key:
+            browser_result = _search_semantic_scholar_browser(
+                api_url, output_dir, expected_title, expected_year
+            )
+            if browser_result is not ...:
+                if browser_result:
+                    return browser_result
+                return None
+
+        # Direct HTTP with retry + backoff
         for attempt in range(3):
             time.sleep(1.0 * (attempt + 1))
-            req = Request(api_url, headers={"User-Agent": "paperchecker/0.1.0"})
+            req = Request(api_url, headers=headers)
             try:
                 resp = urlopen(req, timeout=30)
                 data = json.loads(resp.read().decode())
@@ -298,6 +313,103 @@ def search_crossref(
             return path
 
     return None
+
+
+def _search_semantic_scholar_browser(
+    api_url: str,
+    output_dir: str,
+    expected_title: str | None,
+    expected_year: str | None,
+) -> str | None:
+    """Search Semantic Scholar via browser (Playwright) to bypass rate limits.
+
+    Returns None if browser unavailable, downloaded path on success,
+    or empty string to signal fallback to HTTP.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return ...  # sentinel: fall back to HTTP
+
+    import re, json
+
+    search_url = api_url.replace(
+        "api.semanticscholar.org/graph/v1/paper/search",
+        "www.semanticscholar.org/search",
+    )
+    search_url = re.sub(r"&(limit|fields)=[^&]+", "", search_url)
+    search_url = re.sub(r"query=", "q=", search_url)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(search_url, wait_until="networkidle", timeout=30000)
+
+            page.evaluate("window.scrollBy(0, 800)")
+            page.wait_for_timeout(1000)
+
+            html = page.content()
+            browser.close()
+
+            # Extract paper IDs from links
+            ids = re.findall(r"/paper/([a-f0-9]{40})", html)
+            titles = re.findall(
+                r'<a[^>]*href="/paper/[^"]*"[^>]*>\s*(.*?)\s*</a>',
+                html,
+                re.DOTALL,
+            )
+
+            candidates = []
+            for j, paper_id in enumerate(ids[:5]):
+                result_title = ""
+                if j < len(titles):
+                    result_title = re.sub(r"<[^>]+>", "", titles[j]).strip()
+                score = 1.0
+                if expected_title and result_title:
+                    score = _title_similarity(expected_title, result_title)
+                if score >= 0.4:
+                    candidates.append((score, paper_id))
+
+            candidates.sort(key=lambda c: c[0], reverse=True)
+
+            for _, paper_id in candidates:
+                paper_url = (
+                    "https://api.semanticscholar.org/graph/v1/paper/"
+                    f"{paper_id}?fields=externalIds,openAccessPdf"
+                )
+                try:
+                    from urllib.request import urlopen, Request
+
+                    req = Request(
+                        paper_url, headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    resp = urlopen(req, timeout=15)
+                    paper_data = json.loads(resp.read().decode())
+                except Exception:
+                    continue
+
+                doi = paper_data.get("externalIds", {}).get("DOI")
+                if doi:
+                    path = _download_via_scihub(doi, output_dir)
+                    if path:
+                        return path
+
+                oa = paper_data.get("openAccessPdf", {})
+                if oa and oa.get("url"):
+                    path = _download_via_http(
+                        oa["url"],
+                        output_dir,
+                        f"{paper_id}.pdf",
+                        "semantic_scholar",
+                    )
+                    if path:
+                        return path
+
+            return None
+
+    except Exception:
+        return ...  # fallback to HTTP
 
 
 def _safe_filename(s: str) -> str:
