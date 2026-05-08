@@ -353,6 +353,46 @@ def check(
     write_manifest(manifest)
     save_cache(manifests_dir, str(tex_path), cache)
 
+    # Post-process: elevate multi-citation claims where papers jointly support the claim
+    claim_groups: dict[str, list[tuple[str, str, int]]] = {}
+    for cit in citations:
+        claim_groups.setdefault(cit.claim, []).append(
+            (cit.citation_key, cache.get(cit.cache_key, {}).get("status", ""),
+             cache.get(cit.cache_key, {}).get("confidence", 0))
+        )
+
+    for claim, entries in claim_groups.items():
+        if len(entries) < 2:
+            continue
+        verified_keys = [k for k, s, c in entries if s == "verified" and c >= 4]
+        unsubstantiated_keys = [k for k, s, c in entries if s == "unsubstantiated"]
+        if verified_keys and unsubstantiated_keys:
+            console.print(
+                f"  [bold cyan]Joint:[/bold cyan] "
+                f"{', '.join(unsubstantiated_keys)} "
+                f"[dim]elevated by[/dim] {', '.join(verified_keys)}"
+            )
+            for cit in citations:
+                if cit.citation_key in unsubstantiated_keys and cit.claim == claim:
+                    cache[cit.cache_key]["status"] = "verified"
+                    cache[cit.cache_key]["confidence"] = max(
+                        cache[cit.cache_key].get("confidence", 0), 4
+                    )
+                    cache[cit.cache_key]["reason"] = (
+                        cache[cit.cache_key].get("reason", "")
+                        + " [joint: elevated by co-cited verification]"
+                    )
+
+    # Recompute stats with joint elevations
+    verified = sum(1 for cit in citations
+                   if cache.get(cit.cache_key, {}).get("status") == "verified")
+    unsubstantiated = sum(1 for cit in citations
+                          if cache.get(cit.cache_key, {}).get("status") == "unsubstantiated")
+    unchecked = sum(1 for cit in citations
+                    if cache.get(cit.cache_key, {}).get("status") not in ("verified", "unsubstantiated"))
+
+    save_cache(manifests_dir, str(tex_path), cache)
+
     console.print(results_table)
     console.print(
         f"\n[bold]Summary:[/bold] {verified} verified, {unsubstantiated} unsubstantiated, {unchecked} unchecked"
