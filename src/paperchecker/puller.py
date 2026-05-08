@@ -53,14 +53,29 @@ def _find_sentence_start(text: str, pos: int) -> int:
 
 
 def _clean_latex(s: str) -> str:
-    """Strip LaTeX commands and whitespace from a string."""
-    # Handle escaped characters like \o, \O, \ae, etc.
+    """Strip LaTeX commands and whitespace from a string, preserving math mode."""
+    # Handle escaped characters like \o, \O
     s = s.replace("{\\o}", "ø").replace("{\\O}", "Ø")
     s = s.replace("\\o ", "ø").replace("\\O ", "Ø")
-    # Remove remaining LaTeX commands
+
+    # Preserve math mode blocks ($...$) before stripping commands
+    math_blocks: list[str] = []
+
+    def _save_math(m: re.Match) -> str:
+        math_blocks.append(m.group(0))
+        return f"__MATH_{len(math_blocks) - 1}__"
+
+    s = re.sub(r"\$[^$]+\$", _save_math, s)
+
+    # Strip LaTeX commands from non-math text
     s = re.sub(r"\\[a-z]+\{([^}]*)\}", r"\1", s)
     s = re.sub(r"\\[a-z]+", "", s)
     s = re.sub(r"\{([^}]*)\}", r"\1", s)
+
+    # Restore math blocks
+    for i, block in enumerate(math_blocks):
+        s = s.replace(f"__MATH_{i}__", block)
+
     s = re.sub(r"\s+", " ", s)
     return s.strip()
 
