@@ -568,6 +568,7 @@ def _download_libgen_md5(
 
     # Look for IPFS-based download links (most reliable on modern libgen)
     for pattern in [
+        r'https?://gateway\.pinata\.cloud/ipfs/[a-zA-Z0-9]+[^"\s]*',
         r'https?://cloudflare-ipfs\.com/ipfs/[a-zA-Z0-9]+[^"\s]*',
         r'https?://gateway\.ipfs\.io/ipfs/[a-zA-Z0-9]+[^"\s]*',
         r'https?://ipfs\.io/ipfs/[a-zA-Z0-9]+[^"\s]*',
