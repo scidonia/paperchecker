@@ -19,6 +19,7 @@ class Citation:
     claim: str
     tex_file: str
     line_number: int = 0
+    co_cited: list[str] = field(default_factory=list)
 
     @property
     def cache_key(self) -> str:
@@ -99,12 +100,14 @@ def extract_citations(tex_path: str) -> list[Citation]:
             keys = [k.strip() for k in content.split(",") if k.strip()]
             for key in keys:
                 clean_key = _clean_latex(key)[:300]
+                co_cited = [_clean_latex(k)[:300] for k in keys if k.strip() != key]
                 citations.append(
                     Citation(
                         citation_key=clean_key,
                         claim=claim[:300],
                         tex_file=tex_path,
                         line_number=text[: m.start()].count("\n") + 1,
+                        co_cited=co_cited,
                     )
                 )
 

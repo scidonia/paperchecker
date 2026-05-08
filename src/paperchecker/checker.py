@@ -5,7 +5,7 @@ a 1-5 confidence score with supporting phrase index and reason.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from paperchecker.config import Config
 from paperchecker.llm import call_llm
@@ -50,6 +50,7 @@ DOI:"""
 VERIFICATION_PROMPT = """Does this source document substantiate the following claim made in a paper?
 
 CLAIM: {claim}
+{co_cited}
 
 SOURCE: {source_name}
 NUMBERED PHRASES:
@@ -83,6 +84,7 @@ class VerificationResult:
     reason: str
     phrase_index: int = -1
     phrase_text: str | None = None
+    co_cited: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -95,6 +97,7 @@ def verify_claim(
     source_text: str,
     source_name: str,
     backend: str | None = None,
+    co_cited: list[str] | None = None,
 ) -> VerificationResult | None:
     """Verify a claim against source text using an LLM.
 
@@ -104,6 +107,7 @@ def verify_claim(
         source_text: The full source text to check against.
         source_name: Human-readable name of the source.
         backend: Specific LLM backend to use (uses preferred if None).
+        co_cited: Other papers cited alongside this one on the same claim.
 
     Returns:
         VerificationResult with confidence score, or None if LLM call fails.
@@ -114,8 +118,19 @@ def verify_claim(
     phrases = split_phrases(source_text)
     numbered = format_numbered_phrases(phrases)
 
+    co_cited_text = ""
+    if co_cited:
+        names = ", ".join(co_cited)
+        co_cited_text = (
+            f"NOTE: This claim cites multiple papers simultaneously. "
+            f"You are checking whether THIS specific paper {source_name} "
+            f"supports the claim. The claim may rely on other co-cited papers: [{names}]. "
+            f"Score based on what THIS paper contributes."
+        )
+
     prompt = VERIFICATION_PROMPT.format(
         claim=claim,
+        co_cited=co_cited_text,
         source_name=source_name,
         numbered_phrases=numbered,
     )
@@ -124,7 +139,7 @@ def verify_claim(
     if not resp:
         return None
 
-    return _parse_response(resp, claim, source_name, phrases)
+    return _parse_response(resp, claim, source_name, phrases, co_cited or [])
 
 
 def _parse_response(
@@ -132,6 +147,7 @@ def _parse_response(
     claim: str,
     source_name: str,
     phrases: list[tuple[int, str]],
+    co_cited: list[str] | None = None,
 ) -> VerificationResult:
     """Parse the LLM verification response."""
     parts = [p.strip() for p in response.split("|")]
@@ -180,4 +196,5 @@ def _parse_response(
         reason=reason,
         phrase_index=phrase_index,
         phrase_text=phrase_text,
+        co_cited=co_cited or [],
     )

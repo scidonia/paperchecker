@@ -280,6 +280,7 @@ def check(
                             source_text,
                             os.path.basename(source_path),
                             backend=backend,
+                            co_cited=cit.co_cited,
                         )
                         if result:
                             update_citation(
