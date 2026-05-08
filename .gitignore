@@ -2,3 +2,4 @@
 result
 **/__pycache__/_paperchecker/
 __pycache__/
+.envrc
