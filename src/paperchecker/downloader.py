@@ -521,7 +521,7 @@ def _download_via_libgen(
 
     query = f"{title} {author}"
     for mirror in ["libgen.is", "libgen.li", "libgen.st"]:
-        search_url = f"https://{mirror}/search.php?req={quote(query)}&column=def"
+        search_url = f"https://{mirror}/index.php?req={quote(query)}&column=def"
         try:
             req = Request(
                 search_url,
@@ -534,49 +534,56 @@ def _download_via_libgen(
         except Exception:
             continue
 
-        # Extract download links from results table
-        rows = re.findall(r"<tr[^>]*>.*?</tr>", html, re.DOTALL)
-        for row in rows[:5]:
-            # Find MD5 hash links
-            md5_match = re.search(r'<a\s+href="[^"]*\?md5=([a-f0-9]{32})"', row)
-            if not md5_match:
-                continue
-            md5 = md5_match.group(1)
+        # Extract edition IDs from results table
+        edition_ids = re.findall(r'edition\.php\?id=(\d+)', html)
 
-            # Try to get the download page
-            dl_url = f"https://{mirror}/book/index.php?md5={md5}"
+        for edition_id in edition_ids[:3]:
+            ed_url = f"https://{mirror}/edition.php?id={edition_id}"
             try:
-                dl_req = Request(
-                    dl_url,
+                ed_req = Request(
+                    ed_url,
                     headers={
                         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
                     },
                 )
-                dl_resp = urlopen(dl_req, timeout=15)
-                dl_html = dl_resp.read().decode("utf-8", errors="replace")
+                ed_resp = urlopen(ed_req, timeout=15)
+                ed_html = ed_resp.read().decode("utf-8", errors="replace")
             except Exception:
                 continue
 
-            # Find the actual download link
-            dl_match = re.search(
-                r'<a\s+href="([^"]+\.pdf[^"]*|([^"]*download[^"]*\.php[^"]*))"',
-                dl_html,
-            )
-            if not dl_match:
-                dl_match = re.search(
-                    r'href="(https?://[^"]*download[^"]*)"', dl_html
-                )
-
-            if dl_match:
-                pdf_url = dl_match.group(1)
-                if pdf_url.startswith("/"):
-                    pdf_url = f"https://{mirror}" + pdf_url
-                filename = _safe_filename(f"libgen_{md5}") + ".pdf"
-                path = _download_via_http(
-                    pdf_url, output_dir, filename, "libgen"
-                )
+            # Find MD5 hash on the edition page
+            md5 = re.search(r'md5=([a-f0-9]{32})', ed_html)
+            if md5:
+                path = _download_libgen_md5(mirror, ed_html, output_dir)
                 if path:
                     return path
+
+
+def _download_libgen_md5(
+    mirror: str, ed_html: str, output_dir: str
+) -> str | None:
+    """Download a file from libgen edition page via IPFS/Cloudflare links."""
+    from urllib.request import urlopen, Request
+    import re
+
+    # Look for IPFS-based download links (most reliable on modern libgen)
+    for pattern in [
+        r'https?://cloudflare-ipfs\.com/ipfs/[a-zA-Z0-9]+[^"\s]*',
+        r'https?://gateway\.ipfs\.io/ipfs/[a-zA-Z0-9]+[^"\s]*',
+        r'https?://ipfs\.io/ipfs/[a-zA-Z0-9]+[^"\s]*',
+        r'https?://dweb\.link/ipfs/[a-zA-Z0-9]+[^"\s]*',
+    ]:
+        m = re.search(pattern, ed_html)
+        if m:
+            pdf_url = m.group(0).rstrip('"')
+            # Extract filename from URL if present
+            fn_match = re.search(r'filename=([^&"\s]+)', pdf_url)
+            if fn_match:
+                filename = fn_match.group(1)
+            else:
+                md5 = re.search(r'([a-f0-9]{32})', ed_html)
+                filename = _safe_filename(f"libgen_{md5.group(1) if md5 else 'unknown'}") + ".pdf"
+            return _download_via_http(pdf_url, output_dir, filename, "libgen")
 
     return None
 
